@@ -1,0 +1,3 @@
+/home/kyuubi/work/Beagle/device_driver/majo_min_num/static_alloc/char_num.ko
+/home/kyuubi/work/Beagle/device_driver/majo_min_num/static_alloc/char_num.o
+
