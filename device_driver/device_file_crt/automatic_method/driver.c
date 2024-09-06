@@ -59,6 +59,6 @@ module_init(hello_world_init);
 module_exit(hello_world_exit);
  
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("EmbeTronicX <embetronicx@gmail.com>");
+MODULE_AUTHOR("Hadilao-Embedded <khoi.nv0323.work@gmail.com>");
 MODULE_DESCRIPTION("Simple linux driver (Automatically Creating a Device file)");
 MODULE_VERSION("1.2");

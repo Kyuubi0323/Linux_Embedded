@@ -3,9 +3,9 @@
 *
 *  \details    Userspace application to test the Device driver
 *
-*  \author     EmbeTronicX
+*  \author     Hadilao-Embedded
 *
-*  \Tested with Linux raspberrypi 5.10.27-v7l-embetronicx-custom+
+*  \Tested with Linux raspberrypi 5.10.27-v7l-Hadilao-Embedded-custom+
 *
 *******************************************************************************/
 #include <stdio.h>
@@ -25,7 +25,7 @@ int main()
         int fd;
         int32_t value, number;
         printf("*********************************\n");
-        printf("*******WWW.EmbeTronicX.com*******\n");
+        printf("*******WWW.Hadilao-Embedded.com*******\n");
  
         printf("\nOpening Driver\n");
         fd = open("/dev/etx_device", O_RDWR);

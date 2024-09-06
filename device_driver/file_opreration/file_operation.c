@@ -3,9 +3,9 @@
 *
 *  \details    Simple Linux device driver (File Operations)
 *
-*  \author     EmbeTronicX
+*  \author     Hadilao-Embedded
 *
-*  \Tested with Linux raspberrypi 5.10.27-v7l-embetronicx-custom+
+*  \Tested with Linux raspberrypi 5.10.27-v7l-Hadilao-Embedded-custom+
 *
 *******************************************************************************/
 #include <linux/kernel.h>
@@ -135,6 +135,6 @@ module_init(etx_driver_init);
 module_exit(etx_driver_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("EmbeTronicX <embetronicx@gmail.com>");
+MODULE_AUTHOR("Hadilao-Embedded <khoi.nv0323.work@gmail.com>");
 MODULE_DESCRIPTION("Simple Linux device driver (File Operations)");
 MODULE_VERSION("1.3");
