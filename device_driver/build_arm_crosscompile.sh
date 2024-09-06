@@ -18,6 +18,11 @@ if [ "$2" = "MV" ]; then
 elif [ "$2" = "clean" ]; then
 	echo "clean directory..."
 	sudo make clean
+	sudo rm test_app
+elif [ "$2" = "app" ]; then
+	echo "sending app..."
+	arm-linux-gnueabihf-gcc -o test_app test_app.c
+	sudo rsync -avz test_app debian@192.168.7.2:/home/debian
 else
 	echo "Build .ko files..."
 	exit 1
