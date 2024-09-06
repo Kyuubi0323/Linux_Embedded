@@ -12,7 +12,7 @@ dev_t dev = 0;
 static int __init hello_world_init(void)
 {
         /*Allocating Major number*/
-        if((alloc_chrdev_region(&dev, 0, 1, "Embetronicx_Dev")) <0){
+        if((alloc_chrdev_region(&dev, 0, 1, "Hadilao_Dev")) <0){
                 pr_err("Cannot allocate major number for device\n");
                 return -1;
         }
