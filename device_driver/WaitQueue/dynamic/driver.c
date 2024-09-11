@@ -5,7 +5,7 @@
 *
 *  \author     Hadilao-Embedded
 *
-*  \Tested with Linux raspberrypi 5.10.27-v7l-Hadilao-Embedded-custom+
+*  \Tested with Linux beaglebone black 4.14.108-v7l-Hadilao-Embedded-custom+
 *
 *******************************************************************************/
 #include <linux/kernel.h>

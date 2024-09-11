@@ -1,7 +1,7 @@
 /***************************************************************************//**
 *  \file       driver.c
 *
-*  \details    Simple Linux device driver (IOCTL)
+*  \details    Simple Linux device driver (Kernel Thread)
 *
 *  \author     Hadilao-Embedded
 *
@@ -17,46 +17,62 @@
 #include <linux/device.h>
 #include<linux/slab.h>                 //kmalloc()
 #include<linux/uaccess.h>              //copy_to/from_user()
-#include <linux/ioctl.h>
+#include <linux/kthread.h>             //kernel threads
+#include <linux/sched.h>               //task_struct 
+#include <linux/delay.h>
 #include <linux/err.h>
- 
- 
-#define WR_VALUE _IOW('a','a',int32_t*)
-#define RD_VALUE _IOR('a','b',int32_t*)
- 
-int32_t value = 0;
  
 dev_t dev = 0;
 static struct class *dev_class;
 static struct cdev etx_cdev;
-
+ 
+static int __init etx_driver_init(void);
+static void __exit etx_driver_exit(void);
+ 
+static struct task_struct *etx_thread;
+ 
 /*
 ** Function Prototypes
 */
-static int      __init etx_driver_init(void);
-static void     __exit etx_driver_exit(void);
-static int      etx_open(struct inode *inode, struct file *file);
-static int      etx_release(struct inode *inode, struct file *file);
-static ssize_t  etx_read(struct file *filp, char __user *buf, size_t len,loff_t * off);
-static ssize_t  etx_write(struct file *filp, const char *buf, size_t len, loff_t * off);
-static long     etx_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+/*************** Driver functions **********************/
+static int etx_open(struct inode *inode, struct file *file);
+static int etx_release(struct inode *inode, struct file *file);
+static ssize_t etx_read(struct file *filp, 
+                char __user *buf, size_t len,loff_t * off);
+static ssize_t etx_write(struct file *filp, 
+                const char *buf, size_t len, loff_t * off);
+ /******************************************************/
+ 
+int thread_function(void *pv);
+
+/*
+** Thread
+*/
+int thread_function(void *pv)
+{
+    int i=0;
+    while(!kthread_should_stop()) {
+        pr_info("In Hadilao-Embedded Thread Function %d\n", i++);
+        msleep(1000);
+    }
+    return 0;
+}
 
 /*
 ** File operation sturcture
-*/
+*/ 
 static struct file_operations fops =
 {
         .owner          = THIS_MODULE,
         .read           = etx_read,
         .write          = etx_write,
         .open           = etx_open,
-        .unlocked_ioctl = etx_ioctl,
         .release        = etx_release,
 };
 
 /*
 ** This function will be called when we open the Device file
-*/
+*/  
 static int etx_open(struct inode *inode, struct file *file)
 {
         pr_info("Device File Opened...!!!\n");
@@ -65,7 +81,7 @@ static int etx_open(struct inode *inode, struct file *file)
 
 /*
 ** This function will be called when we close the Device file
-*/
+*/   
 static int etx_release(struct inode *inode, struct file *file)
 {
         pr_info("Device File Closed...!!!\n");
@@ -75,50 +91,27 @@ static int etx_release(struct inode *inode, struct file *file)
 /*
 ** This function will be called when we read the Device file
 */
-static ssize_t etx_read(struct file *filp, char __user *buf, size_t len, loff_t *off)
+static ssize_t etx_read(struct file *filp, 
+                char __user *buf, size_t len, loff_t *off)
 {
-        pr_info("Read Function\n");
+        pr_info("Read function\n");
+ 
         return 0;
 }
 
 /*
 ** This function will be called when we write the Device file
 */
-static ssize_t etx_write(struct file *filp, const char __user *buf, size_t len, loff_t *off)
+static ssize_t etx_write(struct file *filp, 
+                const char __user *buf, size_t len, loff_t *off)
 {
-        pr_info("Write function\n");
+        pr_info("Write Function\n");
         return len;
 }
 
 /*
-** This function will be called when we write IOCTL on the Device file
-*/
-static long etx_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
-{
-         switch(cmd) {
-                case WR_VALUE:
-                        if( copy_from_user(&value ,(int32_t*) arg, sizeof(value)) )
-                        {
-                                pr_err("Data Write : Err!\n");
-                        }
-                        pr_info("Value = %d\n", value);
-                        break;
-                case RD_VALUE:
-                        if( copy_to_user((int32_t*) arg, &value, sizeof(value)) )
-                        {
-                                pr_err("Data Read : Err!\n");
-                        }
-                        break;
-                default:
-                        pr_info("Default\n");
-                        break;
-        }
-        return 0;
-}
- 
-/*
 ** Module Init function
-*/
+*/  
 static int __init etx_driver_init(void)
 {
         /*Allocating Major number*/
@@ -145,35 +138,56 @@ static int __init etx_driver_init(void)
  
         /*Creating device*/
         if(IS_ERR(device_create(dev_class,NULL,dev,NULL,"etx_device"))){
-            pr_err("Cannot create the Device 1\n");
+            pr_err("Cannot create the Device \n");
             goto r_device;
         }
+ 
+        etx_thread = kthread_create(thread_function,NULL,"eTx Thread");
+        if(etx_thread) {
+            wake_up_process(etx_thread);
+        } else {
+            pr_err("Cannot create kthread\n");
+            goto r_device;
+        }
+#if 0
+        /* You can use this method also to create and run the thread */
+        etx_thread = kthread_run(thread_function,NULL,"eTx Thread");
+        if(etx_thread) {
+            pr_info("Kthread Created Successfully...\n");
+        } else {
+            pr_err("Cannot create kthread\n");
+             goto r_device;
+        }
+#endif
         pr_info("Device Driver Insert...Done!!!\n");
         return 0;
+ 
  
 r_device:
         class_destroy(dev_class);
 r_class:
         unregister_chrdev_region(dev,1);
+        cdev_del(&etx_cdev);
         return -1;
 }
 
 /*
 ** Module exit function
-*/
+*/  
 static void __exit etx_driver_exit(void)
 {
+        kthread_stop(etx_thread);
         device_destroy(dev_class,dev);
         class_destroy(dev_class);
         cdev_del(&etx_cdev);
         unregister_chrdev_region(dev, 1);
-        pr_info("Device Driver Remove...Done!!!\n");
+        pr_info("Device Driver Remove...Done!!\n");
 }
  
 module_init(etx_driver_init);
 module_exit(etx_driver_exit);
  
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Hadilao-Embedded <khoi.nv0323.work@gmail.com>");
-MODULE_DESCRIPTION("Simple Linux device driver (IOCTL)");
-MODULE_VERSION("1.5");
+MODULE_AUTHOR("Hadilao-Embedded <Hadilao-Embedded@gmail.com>");
+MODULE_DESCRIPTION("A simple device driver - Kernel Thread");
+MODULE_VERSION("1.14");

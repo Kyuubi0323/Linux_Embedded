@@ -1,7 +1,7 @@
 /***************************************************************************//**
 *  \file       driver.c
 *
-*  \details    Simple Linux device driver (Real Linux Device Driver)
+*  \details    Simple Linux device driver (mutex)
 *
 *  \author     Hadilao-Embedded
 *
@@ -17,29 +17,69 @@
 #include <linux/device.h>
 #include<linux/slab.h>                 //kmalloc()
 #include<linux/uaccess.h>              //copy_to/from_user()
+#include <linux/kthread.h>             //kernel threads
+#include <linux/sched.h>               //task_struct 
+#include <linux/delay.h>
+#include <linux/mutex.h>
 #include <linux/err.h>
 
-#define mem_size        1024           //Memory Size
+struct mutex etx_mutex;
+unsigned long etx_global_variable = 0;
  
 dev_t dev = 0;
 static struct class *dev_class;
 static struct cdev etx_cdev;
-uint8_t *kernel_buffer;
+ 
+static int __init etx_driver_init(void);
+static void __exit etx_driver_exit(void);
+ 
+static struct task_struct *etx_thread1;
+static struct task_struct *etx_thread2; 
+ 
+/*************** Driver functions **********************/
+static int etx_open(struct inode *inode, struct file *file);
+static int etx_release(struct inode *inode, struct file *file);
+static ssize_t etx_read(struct file *filp, 
+                char __user *buf, size_t len,loff_t * off);
+static ssize_t etx_write(struct file *filp, 
+                const char *buf, size_t len, loff_t * off);
+ /******************************************************/
+ 
+int thread_function1(void *pv);
+int thread_function2(void *pv);
 
 /*
-** Function Prototypes
+** Thread function 1
 */
-static int      __init etx_driver_init(void);
-static void     __exit etx_driver_exit(void);
-static int      etx_open(struct inode *inode, struct file *file);
-static int      etx_release(struct inode *inode, struct file *file);
-static ssize_t  etx_read(struct file *filp, char __user *buf, size_t len,loff_t * off);
-static ssize_t  etx_write(struct file *filp, const char *buf, size_t len, loff_t * off);
-
+int thread_function1(void *pv)
+{
+    
+    while(!kthread_should_stop()) {
+        mutex_lock(&etx_mutex);
+        etx_global_variable++;
+        pr_info("In Hadilao-Embedded Thread Function1 %lu\n", etx_global_variable);
+        mutex_unlock(&etx_mutex);
+        msleep(1000);
+    }
+    return 0;
+}
 
 /*
-** File Operations structure
+** Thread function 2
 */
+int thread_function2(void *pv)
+{
+    while(!kthread_should_stop()) {
+        mutex_lock(&etx_mutex);
+        etx_global_variable++;
+        pr_info("In Hadilao-Embedded Thread Function2 %lu\n", etx_global_variable);
+        mutex_unlock(&etx_mutex);
+        msleep(1000);
+    }
+    return 0;
+}
+
+//File operation structure
 static struct file_operations fops =
 {
         .owner          = THIS_MODULE,
@@ -48,10 +88,10 @@ static struct file_operations fops =
         .open           = etx_open,
         .release        = etx_release,
 };
- 
+
 /*
 ** This function will be called when we open the Device file
-*/
+*/ 
 static int etx_open(struct inode *inode, struct file *file)
 {
         pr_info("Device File Opened...!!!\n");
@@ -69,29 +109,22 @@ static int etx_release(struct inode *inode, struct file *file)
 
 /*
 ** This function will be called when we read the Device file
-*/
-static ssize_t etx_read(struct file *filp, char __user *buf, size_t len, loff_t *off)
+*/ 
+static ssize_t etx_read(struct file *filp, 
+                char __user *buf, size_t len, loff_t *off)
 {
-        //Copy the data from the kernel space to the user-space
-        if( copy_to_user(buf, kernel_buffer, mem_size) )
-        {
-                pr_err("Data Read : Err!\n");
-        }
-        pr_info("Data Read : Done!\n");
-        return mem_size;
+        pr_info("Read function\n");
+ 
+        return 0;
 }
 
 /*
 ** This function will be called when we write the Device file
 */
-static ssize_t etx_write(struct file *filp, const char __user *buf, size_t len, loff_t *off)
+static ssize_t etx_write(struct file *filp, 
+                const char __user *buf, size_t len, loff_t *off)
 {
-        //Copy the data to kernel space from the user-space
-        if( copy_from_user(kernel_buffer, buf, len) )
-        {
-                pr_err("Data Write : Err!\n");
-        }
-        pr_info("Data Write : Done!\n");
+        pr_info("Write Function\n");
         return len;
 }
 
@@ -124,45 +157,60 @@ static int __init etx_driver_init(void)
  
         /*Creating device*/
         if(IS_ERR(device_create(dev_class,NULL,dev,NULL,"etx_device"))){
-            pr_info("Cannot create the Device 1\n");
+            pr_info("Cannot create the Device \n");
             goto r_device;
         }
+ 
+        mutex_init(&etx_mutex);
         
-        /*Creating Physical memory*/
-        if((kernel_buffer = kmalloc(mem_size , GFP_KERNEL)) == 0){
-            pr_info("Cannot allocate memory in kernel\n");
-            goto r_device;
+        /* Creating Thread 1 */
+        etx_thread1 = kthread_run(thread_function1,NULL,"eTx Thread1");
+        if(etx_thread1) {
+            pr_err("Kthread1 Created Successfully...\n");
+        } else {
+            pr_err("Cannot create kthread1\n");
+             goto r_device;
         }
-        
-        strcpy(kernel_buffer, "Hello_World");
+ 
+         /* Creating Thread 2 */
+        etx_thread2 = kthread_run(thread_function2,NULL,"eTx Thread2");
+        if(etx_thread2) {
+            pr_err("Kthread2 Created Successfully...\n");
+        } else {
+            pr_err("Cannot create kthread2\n");
+             goto r_device;
+        }
         
         pr_info("Device Driver Insert...Done!!!\n");
         return 0;
+ 
  
 r_device:
         class_destroy(dev_class);
 r_class:
         unregister_chrdev_region(dev,1);
+        cdev_del(&etx_cdev);
         return -1;
 }
 
 /*
 ** Module exit function
-*/
+*/ 
 static void __exit etx_driver_exit(void)
 {
-	kfree(kernel_buffer);
+        kthread_stop(etx_thread1);
+        kthread_stop(etx_thread2);
         device_destroy(dev_class,dev);
         class_destroy(dev_class);
         cdev_del(&etx_cdev);
         unregister_chrdev_region(dev, 1);
-        pr_info("Device Driver Remove...Done!!!\n");
+        pr_info("Device Driver Remove...Done!!\n");
 }
  
 module_init(etx_driver_init);
 module_exit(etx_driver_exit);
  
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Hadilao-Embedded <khoi.nv0323.work@gmail.com>");
-MODULE_DESCRIPTION("Simple Linux device driver (Real Linux Device Driver)");
-MODULE_VERSION("1.4");
+MODULE_AUTHOR("Hadilao-Embedded <Hadilao-Embedded@gmail.com>");
+MODULE_DESCRIPTION("A simple device driver - Mutex");
+MODULE_VERSION("1.17");

@@ -1,11 +1,9 @@
 /***************************************************************************//**
 *  \file       driver.c
 *
-*  \details    Simple Linux device driver (sysfs)
+*  \details    Simple Linux device driver (Global Workqueue - Static method)
 *
 *  \author     Hadilao-Embedded
-*
-*  \Tested with Linux beaglebone black 4.14.108-v7l-Hadilao-Embedded-custom+
 *
 *******************************************************************************/
 #include <linux/kernel.h>
@@ -19,7 +17,34 @@
 #include<linux/uaccess.h>              //copy_to/from_user()
 #include<linux/sysfs.h> 
 #include<linux/kobject.h> 
+#include <linux/interrupt.h>
+#include <asm/io.h>
+#include <linux/workqueue.h>            // Required for workqueues
 #include <linux/err.h>
+ 
+#define IRQ_NO 11
+ 
+ 
+void workqueue_fn(struct work_struct *work); 
+ 
+/*Creating work by Static Method */
+DECLARE_WORK(workqueue,workqueue_fn);
+ 
+/*Workqueue Function*/
+void workqueue_fn(struct work_struct *work)
+{
+        pr_info("Executing Workqueue Function\n");
+}
+ 
+ 
+//Interrupt handler for IRQ 11. 
+static irqreturn_t irq_handler(int irq,void *dev_id) {
+        pr_info("Shared IRQ: Interrupt Occurred");
+        schedule_work(&workqueue);
+        
+        return IRQ_HANDLED;
+}
+ 
  
 volatile int etx_value = 0;
  
@@ -32,23 +57,23 @@ struct kobject *kobj_ref;
 /*
 ** Function Prototypes
 */
-static int      __init etx_driver_init(void);
-static void     __exit etx_driver_exit(void);
+static int __init etx_driver_init(void);
+static void __exit etx_driver_exit(void);
  
 /*************** Driver functions **********************/
-static int      etx_open(struct inode *inode, struct file *file);
-static int      etx_release(struct inode *inode, struct file *file);
-static ssize_t  etx_read(struct file *filp, 
-                        char __user *buf, size_t len,loff_t * off);
-static ssize_t  etx_write(struct file *filp, 
-                        const char *buf, size_t len, loff_t * off);
+static int etx_open(struct inode *inode, struct file *file);
+static int etx_release(struct inode *inode, struct file *file);
+static ssize_t etx_read(struct file *filp, 
+                char __user *buf, size_t len,loff_t * off);
+static ssize_t etx_write(struct file *filp, 
+                const char *buf, size_t len, loff_t * off);
  
 /*************** Sysfs functions **********************/
-static ssize_t  sysfs_show(struct kobject *kobj, 
-                        struct kobj_attribute *attr, char *buf);
-static ssize_t  sysfs_store(struct kobject *kobj, 
-                        struct kobj_attribute *attr,const char *buf, size_t count);
-
+static ssize_t sysfs_show(struct kobject *kobj, 
+                struct kobj_attribute *attr, char *buf);
+static ssize_t sysfs_store(struct kobject *kobj, 
+                struct kobj_attribute *attr,const char *buf, size_t count);
+ 
 struct kobj_attribute etx_attr = __ATTR(etx_value, 0660, sysfs_show, sysfs_store);
 
 /*
@@ -65,7 +90,7 @@ static struct file_operations fops =
 
 /*
 ** This function will be called when we read the sysfs file
-*/
+*/ 
 static ssize_t sysfs_show(struct kobject *kobj, 
                 struct kobj_attribute *attr, char *buf)
 {
@@ -86,7 +111,7 @@ static ssize_t sysfs_store(struct kobject *kobj,
 
 /*
 ** This function will be called when we open the Device file
-*/ 
+*/  
 static int etx_open(struct inode *inode, struct file *file)
 {
         pr_info("Device File Opened...!!!\n");
@@ -95,13 +120,13 @@ static int etx_open(struct inode *inode, struct file *file)
 
 /*
 ** This function will be called when we close the Device file
-*/ 
+*/  
 static int etx_release(struct inode *inode, struct file *file)
 {
         pr_info("Device File Closed...!!!\n");
         return 0;
 }
- 
+
 /*
 ** This function will be called when we read the Device file
 */
@@ -109,6 +134,7 @@ static ssize_t etx_read(struct file *filp,
                 char __user *buf, size_t len, loff_t *off)
 {
         pr_info("Read function\n");
+        asm("int $0x3B");  // Corresponding to irq 11
         return 0;
 }
 
@@ -162,9 +188,16 @@ static int __init etx_driver_init(void)
         if(sysfs_create_file(kobj_ref,&etx_attr.attr)){
                 pr_err("Cannot create sysfs file......\n");
                 goto r_sysfs;
-    }
+        }
+        if (request_irq(IRQ_NO, irq_handler, IRQF_SHARED, "etx_device", (void *)(irq_handler))) {
+            pr_info("my_device: cannot register IRQ ");
+                    goto irq;
+        }
         pr_info("Device Driver Insert...Done!!!\n");
         return 0;
+ 
+irq:
+        free_irq(IRQ_NO,(void *)(irq_handler));
  
 r_sysfs:
         kobject_put(kobj_ref); 
@@ -180,9 +213,10 @@ r_class:
 
 /*
 ** Module exit function
-*/
+*/ 
 static void __exit etx_driver_exit(void)
 {
+        free_irq(IRQ_NO,(void *)(irq_handler));
         kobject_put(kobj_ref); 
         sysfs_remove_file(kernel_kobj, &etx_attr.attr);
         device_destroy(dev_class,dev);
@@ -196,6 +230,6 @@ module_init(etx_driver_init);
 module_exit(etx_driver_exit);
  
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Hadilao-Embedded <khoi.nv0323.work@gmail.com>");
-MODULE_DESCRIPTION("Simple Linux device driver (sysfs)");
-MODULE_VERSION("1.8");
+MODULE_AUTHOR("Hadilao-Embedded <Hadilao-Embedded@gmail.com>");
+MODULE_DESCRIPTION("Simple Linux device driver (Global Workqueue - Static method)");
+MODULE_VERSION("1.10");

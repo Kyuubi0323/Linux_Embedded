@@ -1,7 +1,7 @@
 /***************************************************************************//**
 *  \file       driver.c
 *
-*  \details    Simple Linux device driver (sysfs)
+*  \details    Simple linux driver (Read write spinlock)
 *
 *  \author     Hadilao-Embedded
 *
@@ -17,43 +17,69 @@
 #include <linux/device.h>
 #include<linux/slab.h>                 //kmalloc()
 #include<linux/uaccess.h>              //copy_to/from_user()
-#include<linux/sysfs.h> 
-#include<linux/kobject.h> 
+#include <linux/kthread.h>             //kernel threads
+#include <linux/sched.h>               //task_struct 
+#include <linux/delay.h>
 #include <linux/err.h>
  
-volatile int etx_value = 0;
+//Static method to initialize the read write spinlock
+static DEFINE_RWLOCK(etx_rwlock); 
  
+//Dynamic method to initialize the read write spinlock
+//rwlock_t etx_rwlock;
  
+unsigned long etx_global_variable = 0;
 dev_t dev = 0;
 static struct class *dev_class;
 static struct cdev etx_cdev;
-struct kobject *kobj_ref;
-
-/*
-** Function Prototypes
-*/
-static int      __init etx_driver_init(void);
-static void     __exit etx_driver_exit(void);
+ 
+static int __init etx_driver_init(void);
+static void __exit etx_driver_exit(void);
+ 
+static struct task_struct *etx_thread1;
+static struct task_struct *etx_thread2; 
  
 /*************** Driver functions **********************/
-static int      etx_open(struct inode *inode, struct file *file);
-static int      etx_release(struct inode *inode, struct file *file);
-static ssize_t  etx_read(struct file *filp, 
-                        char __user *buf, size_t len,loff_t * off);
-static ssize_t  etx_write(struct file *filp, 
-                        const char *buf, size_t len, loff_t * off);
+static int etx_open(struct inode *inode, struct file *file);
+static int etx_release(struct inode *inode, struct file *file);
+static ssize_t etx_read(struct file *filp, 
+                char __user *buf, size_t len,loff_t * off);
+static ssize_t etx_write(struct file *filp, 
+                const char *buf, size_t len, loff_t * off);
+ /******************************************************/
  
-/*************** Sysfs functions **********************/
-static ssize_t  sysfs_show(struct kobject *kobj, 
-                        struct kobj_attribute *attr, char *buf);
-static ssize_t  sysfs_store(struct kobject *kobj, 
-                        struct kobj_attribute *attr,const char *buf, size_t count);
-
-struct kobj_attribute etx_attr = __ATTR(etx_value, 0660, sysfs_show, sysfs_store);
+int thread_function1(void *pv);
+int thread_function2(void *pv);
 
 /*
-** File operation sturcture
+** thread function 1 write
 */
+int thread_function1(void *pv)
+{
+    while(!kthread_should_stop()) {  
+        write_lock(&etx_rwlock);
+        etx_global_variable++;
+        write_unlock(&etx_rwlock);
+        msleep(1000);
+    }
+    return 0;
+}
+
+/*
+** thread function 2 - read
+*/
+int thread_function2(void *pv)
+{
+    while(!kthread_should_stop()) {
+        read_lock(&etx_rwlock);
+        pr_info("In Hadilao-Embedded Thread Function2 : Read value %lu\n", etx_global_variable);
+        read_unlock(&etx_rwlock);
+        msleep(1000);
+    }
+    return 0;
+}
+
+//File operation structure  
 static struct file_operations fops =
 {
         .owner          = THIS_MODULE,
@@ -62,27 +88,6 @@ static struct file_operations fops =
         .open           = etx_open,
         .release        = etx_release,
 };
-
-/*
-** This function will be called when we read the sysfs file
-*/
-static ssize_t sysfs_show(struct kobject *kobj, 
-                struct kobj_attribute *attr, char *buf)
-{
-        pr_info("Sysfs - Read!!!\n");
-        return sprintf(buf, "%d", etx_value);
-}
-
-/*
-** This function will be called when we write the sysfsfs file
-*/
-static ssize_t sysfs_store(struct kobject *kobj, 
-                struct kobj_attribute *attr,const char *buf, size_t count)
-{
-        pr_info("Sysfs - Write!!!\n");
-        sscanf(buf,"%d",&etx_value);
-        return count;
-}
 
 /*
 ** This function will be called when we open the Device file
@@ -101,14 +106,15 @@ static int etx_release(struct inode *inode, struct file *file)
         pr_info("Device File Closed...!!!\n");
         return 0;
 }
- 
+
 /*
 ** This function will be called when we read the Device file
-*/
+*/ 
 static ssize_t etx_read(struct file *filp, 
                 char __user *buf, size_t len, loff_t *off)
 {
         pr_info("Read function\n");
+ 
         return 0;
 }
 
@@ -121,10 +127,10 @@ static ssize_t etx_write(struct file *filp,
         pr_info("Write Function\n");
         return len;
 }
- 
+
 /*
 ** Module Init function
-*/
+*/ 
 static int __init etx_driver_init(void)
 {
         /*Allocating Major number*/
@@ -151,24 +157,35 @@ static int __init etx_driver_init(void)
  
         /*Creating device*/
         if(IS_ERR(device_create(dev_class,NULL,dev,NULL,"etx_device"))){
-            pr_info("Cannot create the Device 1\n");
+            pr_info("Cannot create the Device \n");
             goto r_device;
         }
  
-        /*Creating a directory in /sys/kernel/ */
-        kobj_ref = kobject_create_and_add("etx_sysfs",kernel_kobj);
+        
+        /* Creating Thread 1 */
+        etx_thread1 = kthread_run(thread_function1,NULL,"eTx Thread1");
+        if(etx_thread1) {
+            pr_err("Kthread1 Created Successfully...\n");
+        } else {
+            pr_err("Cannot create kthread1\n");
+             goto r_device;
+        }
  
-        /*Creating sysfs file for etx_value*/
-        if(sysfs_create_file(kobj_ref,&etx_attr.attr)){
-                pr_err("Cannot create sysfs file......\n");
-                goto r_sysfs;
-    }
+         /* Creating Thread 2 */
+        etx_thread2 = kthread_run(thread_function2,NULL,"eTx Thread2");
+        if(etx_thread2) {
+            pr_err("Kthread2 Created Successfully...\n");
+        } else {
+            pr_err("Cannot create kthread2\n");
+             goto r_device;
+        }
+ 
+        //Dynamic method to initialize the read write spinlock
+        //rwlock_init(&etx_rwlock);
+        
         pr_info("Device Driver Insert...Done!!!\n");
         return 0;
  
-r_sysfs:
-        kobject_put(kobj_ref); 
-        sysfs_remove_file(kernel_kobj, &etx_attr.attr);
  
 r_device:
         class_destroy(dev_class);
@@ -183,19 +200,19 @@ r_class:
 */
 static void __exit etx_driver_exit(void)
 {
-        kobject_put(kobj_ref); 
-        sysfs_remove_file(kernel_kobj, &etx_attr.attr);
+        kthread_stop(etx_thread1);
+        kthread_stop(etx_thread2);
         device_destroy(dev_class,dev);
         class_destroy(dev_class);
         cdev_del(&etx_cdev);
         unregister_chrdev_region(dev, 1);
-        pr_info("Device Driver Remove...Done!!!\n");
+        pr_info("Device Driver Remove...Done!!\n");
 }
  
 module_init(etx_driver_init);
 module_exit(etx_driver_exit);
  
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Hadilao-Embedded <khoi.nv0323.work@gmail.com>");
-MODULE_DESCRIPTION("Simple Linux device driver (sysfs)");
-MODULE_VERSION("1.8");
+MODULE_AUTHOR("Hadilao-Embedded <Hadilao-Embedded@gmail.com>");
+MODULE_DESCRIPTION("A simple device driver - RW Spinlock");
+MODULE_VERSION("1.19");

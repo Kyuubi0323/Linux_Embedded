@@ -1,7 +1,7 @@
-/***************************************************************************//**
+/****************************************************************************//**
 *  \file       driver.c
 *
-*  \details    Simple Linux device driver (IOCTL)
+*  \details    Simple linux driver (Completion Dynamic method)
 *
 *  \author     Hadilao-Embedded
 *
@@ -15,48 +15,68 @@
 #include <linux/fs.h>
 #include <linux/cdev.h>
 #include <linux/device.h>
-#include<linux/slab.h>                 //kmalloc()
-#include<linux/uaccess.h>              //copy_to/from_user()
-#include <linux/ioctl.h>
+#include <linux/slab.h>                 //kmalloc()
+#include <linux/uaccess.h>              //copy_to/from_user()
+ 
+#include <linux/kthread.h>
+#include <linux/completion.h>           // Required for the completion
 #include <linux/err.h>
  
+uint32_t read_count = 0;
+static struct task_struct *wait_thread;
  
-#define WR_VALUE _IOW('a','a',int32_t*)
-#define RD_VALUE _IOR('a','b',int32_t*)
- 
-int32_t value = 0;
+struct completion data_read_done;
  
 dev_t dev = 0;
 static struct class *dev_class;
 static struct cdev etx_cdev;
+int completion_flag = 0;
+ 
+static int __init etx_driver_init(void);
+static void __exit etx_driver_exit(void);
+ 
+/*************** Driver Functions **********************/
+static int etx_open(struct inode *inode, struct file *file);
+static int etx_release(struct inode *inode, struct file *file);
+static ssize_t etx_read(struct file *filp, 
+                                char __user *buf, size_t len,loff_t * off);
+static ssize_t etx_write(struct file *filp, 
+                                const char *buf, size_t len, loff_t * off);
+/******************************************************/
 
-/*
-** Function Prototypes
-*/
-static int      __init etx_driver_init(void);
-static void     __exit etx_driver_exit(void);
-static int      etx_open(struct inode *inode, struct file *file);
-static int      etx_release(struct inode *inode, struct file *file);
-static ssize_t  etx_read(struct file *filp, char __user *buf, size_t len,loff_t * off);
-static ssize_t  etx_write(struct file *filp, const char *buf, size_t len, loff_t * off);
-static long     etx_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
-
-/*
-** File operation sturcture
-*/
+//File operation structure
 static struct file_operations fops =
 {
         .owner          = THIS_MODULE,
         .read           = etx_read,
         .write          = etx_write,
         .open           = etx_open,
-        .unlocked_ioctl = etx_ioctl,
         .release        = etx_release,
 };
 
 /*
+** Waitqueue thread
+*/ 
+static int wait_function(void *unused)
+{
+        
+        while(1) {
+                pr_info("Waiting For Event...\n");
+                wait_for_completion (&data_read_done);
+                if(completion_flag == 2) {
+                        pr_info("Event Came From Exit Function\n");
+                        return 0;
+                }
+                pr_info("Event Came From Read Function - %d\n", ++read_count);
+                completion_flag = 0;
+        }
+        do_exit(0);
+        return 0;
+}
+
+/*
 ** This function will be called when we open the Device file
-*/
+*/ 
 static int etx_open(struct inode *inode, struct file *file)
 {
         pr_info("Device File Opened...!!!\n");
@@ -65,7 +85,7 @@ static int etx_open(struct inode *inode, struct file *file)
 
 /*
 ** This function will be called when we close the Device file
-*/
+*/ 
 static int etx_release(struct inode *inode, struct file *file)
 {
         pr_info("Device File Closed...!!!\n");
@@ -78,6 +98,10 @@ static int etx_release(struct inode *inode, struct file *file)
 static ssize_t etx_read(struct file *filp, char __user *buf, size_t len, loff_t *off)
 {
         pr_info("Read Function\n");
+        completion_flag = 1;
+        if(!completion_done (&data_read_done)) {
+            complete (&data_read_done);
+        }
         return 0;
 }
 
@@ -90,32 +114,6 @@ static ssize_t etx_write(struct file *filp, const char __user *buf, size_t len, 
         return len;
 }
 
-/*
-** This function will be called when we write IOCTL on the Device file
-*/
-static long etx_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
-{
-         switch(cmd) {
-                case WR_VALUE:
-                        if( copy_from_user(&value ,(int32_t*) arg, sizeof(value)) )
-                        {
-                                pr_err("Data Write : Err!\n");
-                        }
-                        pr_info("Value = %d\n", value);
-                        break;
-                case RD_VALUE:
-                        if( copy_to_user((int32_t*) arg, &value, sizeof(value)) )
-                        {
-                                pr_err("Data Read : Err!\n");
-                        }
-                        break;
-                default:
-                        pr_info("Default\n");
-                        break;
-        }
-        return 0;
-}
- 
 /*
 ** Module Init function
 */
@@ -130,6 +128,8 @@ static int __init etx_driver_init(void)
  
         /*Creating cdev structure*/
         cdev_init(&etx_cdev,&fops);
+        etx_cdev.owner = THIS_MODULE;
+        etx_cdev.ops = &fops;
  
         /*Adding character device to the system*/
         if((cdev_add(&etx_cdev,dev,1)) < 0){
@@ -148,6 +148,19 @@ static int __init etx_driver_init(void)
             pr_err("Cannot create the Device 1\n");
             goto r_device;
         }
+ 
+        //Create the kernel thread with name 'mythread'
+        wait_thread = kthread_create(wait_function, NULL, "WaitThread");
+        if (wait_thread) {
+                pr_info("Thread Created successfully\n");
+                wake_up_process(wait_thread);
+        } else {
+                pr_err("Thread creation failed\n");
+        }
+ 
+        //Initializing Completion
+        init_completion(&data_read_done);
+ 
         pr_info("Device Driver Insert...Done!!!\n");
         return 0;
  
@@ -160,9 +173,13 @@ r_class:
 
 /*
 ** Module exit function
-*/
+*/ 
 static void __exit etx_driver_exit(void)
 {
+        completion_flag = 2;
+        if(!completion_done (&data_read_done)) {
+            complete (&data_read_done);
+        }
         device_destroy(dev_class,dev);
         class_destroy(dev_class);
         cdev_del(&etx_cdev);
@@ -174,6 +191,6 @@ module_init(etx_driver_init);
 module_exit(etx_driver_exit);
  
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Hadilao-Embedded <khoi.nv0323.work@gmail.com>");
-MODULE_DESCRIPTION("Simple Linux device driver (IOCTL)");
-MODULE_VERSION("1.5");
+MODULE_AUTHOR("Hadilao-Embedded <Hadilao-Embedded@gmail.com>");
+MODULE_DESCRIPTION("A simple device driver - Completion (Dynamic Method)");
+MODULE_VERSION("1.24");

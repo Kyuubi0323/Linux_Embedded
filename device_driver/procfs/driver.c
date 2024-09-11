@@ -5,7 +5,7 @@
 *
 *  \author     Hadilao-Embedded
 * 
-*  \Tested with Linux raspberrypi 5.10.27-v7l-Hadilao-Embedded-custom+
+*  \Tested with Linux beaglebone black 4.14.108-v7l-Hadilao-Embedded-custom+
 *
 * *******************************************************************************/
 #include <linux/kernel.h>
@@ -22,7 +22,7 @@
 #include <linux/err.h>
 
 /* 
-** I am using the kernel 5.10.27-v7l. So I have set this as 510.
+** I am using the kernel 4.14.108-v7l. So I have set this as 510.
 ** If you are using the kernel 3.10, then set this as 310,
 ** and for kernel 5.1, set this as 501. Because the API proc_create()
 ** changed in kernel above v5.5.
