@@ -12,6 +12,7 @@ unxz bone-debian-9.12-imgtec-armhf-2020-04-06-4gb.img.xz
 ```
 sudo mkdir /media/usb
 sudo dd if=/bone-debian-9.12-imgtec-armhf-2020-04-06-4gb.img of=/dev/sdb
+sync
 ```
 4. Config Network for USB port (https://www.digikey.com/en/maker/blogs/how-to-connect-a-beaglebone-black-to-the-internet-using-usb)
 ```
