@@ -1,4 +1,4 @@
-Todo Steps for Cross-Compiling
+**Todo Steps for Cross-Compiling**
 1. Set up Host ubuntu 
 Install some package that needed to build the Linux Kernel<br>
 ```
@@ -36,5 +36,13 @@ Finale, we will create a temp dir that resides outside of our linux kern dir. An
 mkdir ../tmp/
 make -j4 ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=../tmp modules_install
 ```
-
-
+**Using the script to transfer files to board** <br>
+I create ./build_arm_crosscompile.sh to help the build process faster. It has some feat that u guys can try or just modify when fork down.<br>
+It can be called with 2 params passed in.
+```
+./build_arm_crosscompile.sh <path_to_dir> <CMD>
+```
+about CMD <br>
+>if "MV" it will automate generate the .ko file then transfer it to the board /home/debian: <br>
+>if "clean" just a norm cmd that clean all the output 've just built <br>
+>if "" it will only generate the .ko files <br>
